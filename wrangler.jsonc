@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "study-app",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    // SPA：找不到的路徑回傳 index.html；/api 與 /collab 先交給 Worker
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/internal/live-ai/*", "/classroom", "/classroom/*", "/workspace", "/workspace/*", "/workbench/*", "/generation-preview", "/_next/*", "/avatars/*", "/logos/*", "/openmaic-mark.png", "/logo-horizontal.png", "/vendor/interactive/*", "/vendor/maic-importer/*", "/vendor/standalone-player/*", "/vendor/video-export/*", "/vendor/gsap.min.js", "/mcp", "/mcp/*", "/authorize", "/oauth/*", "/.well-known/*"]
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    "APP_NAME": "STUDY",
+    "BOOTSTRAP_ADMINS": "",
+    // R2 儲存上限（bytes）：預設 9 GB，留在 R2 免費額度 10 GB 內，避免產生 pay-as-you-go 費用
+    "MAX_STORAGE_BYTES": "9663676416",
+    // 僅本機開發可設為 1（.dev.vars），正式環境一律 0
+    "DEV_LOGIN": "0",
+    // 隱私權政策 / 服務條款頁面顯示的聯絡信箱（留空則顯示「網站管理員」）
+    "CONTACT_EMAIL": "",
+    // 對外網址（MCP OAuth 的 resource / issuer）；本機開發在 .dev.vars 覆寫為 http://localhost:5173
+    "PUBLIC_ORIGIN": "http://localhost:5173"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "study-app-db", "migrations_dir": "migrations" }
+  ],
+  "kv_namespaces": [
+    // MCP OAuth：權杖、授權碼、用戶端註冊（只存雜湊，props 加密）
+    { "binding": "OAUTH_KV" }
+  ],
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "study-app-files" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "DOC_ROOM", "class_name": "DocRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["DocRoom"] }
+  ],
+  "triggers": { "crons": ["17 19 * * *"] }
+}

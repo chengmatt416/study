@@ -1,0 +1,12 @@
+{
+  "name": "study-openmaic-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:database": "node scripts/prepare-database.mjs",
+    "test:database": "node --experimental-transform-types --test test/sqlite-fs.test.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.3.16"
+  }
+}

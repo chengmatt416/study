@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "study-app-openmaic-database",
+  "main": "src/database-worker.ts",
+  "compatibility_date": "2026-10-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "define": {
+    "import.meta.url": "\"file:///bundle/database-worker.js\"",
+    "process.versions.node": "undefined",
+    "self.location.href": "\"https://bootstrap/database-worker.js\"",
+    "location.pathname": "\"/database-worker.js\""
+  },
+  "assets": {
+    "directory": "../../../.openmaic/cloudflare-db/assets",
+    "binding": "BOOTSTRAP",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "DATABASE", "class_name": "OpenMaicPostgres" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OpenMaicPostgres"] }],
+  "observability": { "enabled": true }
+}

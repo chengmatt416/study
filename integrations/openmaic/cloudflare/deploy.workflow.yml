@@ -1,0 +1,76 @@
+name: Deploy verified OpenMAIC core
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: Successful full build run ID
+        required: true
+      build_revision:
+        description: Full commit SHA recorded by the successful build
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: openmaic-core-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: openmaic-workers-build
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - run: mkdir core && tar -xzf openmaic-workers.tgz -C core
+      - name: Verify build and prepare deployment
+        env:
+          EXPECTED_REVISION: ${{ inputs.build_revision }}
+          CORE_DEPLOYMENT_SECRETS: ${{ secrets.CORE_DEPLOYMENT_SECRETS }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile, writeFile, cp } from 'node:fs/promises';
+          import assert from 'node:assert/strict';
+          const marker = JSON.parse(await readFile('core/.open-next/study-build-verified.json', 'utf8'));
+          assert.equal(marker.sourceRevision, process.env.EXPECTED_REVISION);
+          assert.equal(marker.typescript, true);
+          assert.equal(marker.build, true);
+          assert.equal(marker.asciiBundle, true, 'A non-ASCII Core bundle boots Next.js on every request');
+          const secrets = JSON.parse(process.env.CORE_DEPLOYMENT_SECRETS);
+          assert.ok(secrets.STUDY_MCP_SECRET?.length >= 32 && secrets.OPENMAIC_SECRET_KEY?.length >= 32);
+          await writeFile('core/secrets.json', JSON.stringify(secrets), { mode: 0o600 });
+          await writeFile('core/jobs-secrets.json', JSON.stringify({ STUDY_MCP_SECRET: secrets.STUDY_MCP_SECRET }), { mode: 0o600 });
+          await cp('integrations/openmaic/cloudflare/overlay/worker.ts', 'core/worker.ts');
+          for (const name of ['job-auth.ts', 'jobs-worker.ts']) await cp('integrations/openmaic/cloudflare/overlay/lib/study-workers/' + name, 'core/lib/study-workers/' + name);
+          await cp('integrations/openmaic/cloudflare/wrangler.jobs.jsonc', 'core/wrangler.jobs.jsonc');
+          const config = JSON.parse(await readFile('integrations/openmaic/cloudflare/wrangler.core.jsonc', 'utf8'));
+          delete config.$schema;
+          config.main = './worker.ts';
+          config.assets.directory = './.open-next/assets';
+          config.vars.OPENMAIC_AGENT_SKILLS_DIR = '/tmp/study-skills';
+          await writeFile('core/wrangler.jsonc', JSON.stringify(config));
+          JS
+      - run: npm install --global wrangler@4.156.0
+      - name: Deploy isolated scheduler
+        working-directory: core
+        env:
+          CLOUDFLARE_ACCOUNT_ID: 155037be4440cafa6a5e5029ef176433
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: wrangler deploy --config wrangler.jobs.jsonc --secrets-file jobs-secrets.json
+      - name: Deploy complete core
+        working-directory: core
+        env:
+          CLOUDFLARE_ACCOUNT_ID: 155037be4440cafa6a5e5029ef176433
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: wrangler deploy --config wrangler.jsonc --secrets-file secrets.json
+      - name: Remove temporary secret file
+        if: always()
+        run: rm -f core/secrets.json core/jobs-secrets.json

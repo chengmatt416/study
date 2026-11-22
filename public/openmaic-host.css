@@ -1,0 +1,19 @@
+/* The course title and chapter navigation remain in the reading dock. */
+@media (max-width: 700px) {
+  .study-classroom > div > header {
+    height: 56px;
+    min-height: 56px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .study-classroom > div > header > div:first-child {
+    flex: 0 0 auto;
+  }
+  .study-classroom > div > header > div:first-child > div {
+    display: none;
+  }
+  .study-classroom > div > header > div:last-child {
+    flex-shrink: 0;
+    gap: 8px;
+  }
+}

@@ -1,0 +1,33 @@
+name: Full OpenMAIC Workers build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - run: npm ci --ignore-scripts
+      - run: node scripts/openmaic-workers.mjs prepare
+      - run: node scripts/openmaic-workers.mjs build
+      - run: node --experimental-transform-types --test integrations/openmaic/cloudflare/test/*.test.mjs
+      - run: node node_modules/vitest/vitest.mjs run --config integrations/openmaic/cloudflare/vitest.config.ts
+      - name: Package verified Worker
+        run: tar -czf "$RUNNER_TEMP/openmaic-workers.tgz" -C .openmaic/worker-core .open-next worker.ts wrangler.jsonc wrangler.parser.jsonc wrangler.jobs.jsonc lib/study-workers lib/study-mcp/auth.ts lib/study-mcp/protocol.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openmaic-workers-build
+          path: ${{ runner.temp }}/openmaic-workers.tgz
+          retention-days: 1

@@ -1,0 +1,49 @@
+# Group access control
+
+Admins manage groups under **Admin → 群組與存取權限** (`/admin/access`). Create a group, select users from the existing allowlist, choose feature defaults (`ebooks`, `booklets`, `syllabi`, `notes`, `exams`, `decks`, `tools`, `shared_write`, `ai`), then optionally override individual `book` (ebooks, booklets, syllabi, IB documents), `document` (notes/lessons, exams) or `deck` entries. Save applies the complete group configuration atomically using optimistic concurrency (`version` and `edit_token`); concurrent edits require reloading the latest version.
+
+Existing users retain access until a rule changes it. Within one group, an explicit content rule overrides the feature default. Across groups, a denial from any group's effective rule wins. Admins bypass group restrictions, so they can always recover the configuration (though app admin status never bypasses private resource ownership). Membership uses allowlisted email addresses, including users who have not signed in yet.
+
+## Feature scopes, books and chapter PDFs
+
+Ebooks (`ebooks`), data booklets (`booklets`) and **課綱／IB 科目文件** (`syllabi`) are independent features. `syllabi` governs semester syllabi, subjectless IB reference documents (`books.kind = 'syllabus'` with IB metadata, sharing individual `book` rules, PDF protection and MCP download grants) and the personal weekly timetable (`timetable_entries`). To withhold ebooks while keeping booklets available, deny **電子書** and leave **資料手冊** allowed. To withhold only INS and one keypoint lesson, leave feature defaults open and deny those two entries under individual content. Source citation checks (`citableSources`) and MCP IB indexing (`list_ib_resources` / `ibReferenceIndex`) filter available books, syllabi and IB reference files through the caller's `book` rules.
+
+`GET /api/books/:id/file` runs ahead of the generic `enforceAccess` middleware and calls `readableBookFile`, a single batched SQL query that keeps 2 MB pdf.js range requests fast while enforcing the same feature/`book` rules and chapter-PDF privacy.
+
+Admins upload ebooks, semester syllabi and IB reference documents and handle book PDF replacements and deletions. Non-admin members can upload data booklets (`kind = 'booklet'`) when allowed by their `booklets` and `shared_write` permissions; initializing an upload (`POST /api/books/uploads`) checks `owner_id === user.id` (`409` on mismatch), and `/api/books/uploads` multipart resume/part/complete/abort operations plus cover updates (`PUT /api/books/:id/cover`) are restricted to the uploader (`created_by`) or an admin.
+
+Chapter PDF uploads (`books.kind = 'chapter'`, `0032_chapter_material_books.sql`) inherit the linked chapter's visibility and `created_by` owner rather than appearing as independent library items. They are omitted from library listings, `/api/search` and the content library, cannot be replaced or deleted via generic book routes, and even admins cannot open another user's private chapter PDF.
+
+## Shared writing and personal exemptions
+
+**共享內容寫入** (`shared_write`) controls changes that affect other users. Denying it prevents shared document edits, collaboration messages, shared exam answers, deck/card imports and edits, shared chapter changes, course authoring, shared annotations and booklet uploads. Existing collaboration WebSocket connections (`DocRoom`) recheck allowlist membership and document permissions on connect, on every incoming message and on broadcast, closing revoked sockets with code `1008`.
+
+Denying `shared_write` still leaves personal and owner-only workflows available within the user's read permissions: reading progress, bookmarks, private annotations, flashcard settings/reviews, exam attempts, personal `timetable_entries` (gated by `syllabi`), personal content organization (`content_folders` and `content_organization` archive/star), strictly owner-scoped `ink` notebooks, and creating or editing a user's own private notes, exams, decks and private chapters. New notes, exams and decks default to `private` when `shared_write` is disabled, and explicit `shared` creation returns `403`. `chapters` checks `shared_write` per operation inside the route so private chapters remain usable when shared writing is denied, while creating/editing shared chapters, linking content into shared chapters or managing shared chapter materials requires `shared_write`. `long-courses` relies on parent-note permissions: published parts are readable via `requireDocumentAccess` on the parent note, while managing drafts and unpublished parts requires creator `requireDocumentWrite`.
+
+## Private content, chapters and deletion
+
+Private notes, exams and decks are visible only to their owner—including through UI routes, MCP, search, attachments and direct URLs. App admin status does not override ownership. Private resources are omitted from `/api/admin/access-groups` and cannot be opened by adding an allow rule. Private revisions, cards, exam answers and interactive courses take effect immediately without administrator review. Owners can toggle visibility (`PUT /api/documents/:slug/visibility` and `PUT /api/decks/:id/visibility`) unless the item belongs to a chapter; see [private content](private-content.md).
+
+Chapters (`topics`) default to `private` (`0031_chapter_visibility.sql`) and are completely invisible (`404`, including to admins) to anyone except their creator; legacy `topics` rows without `created_by` remain hidden. Creator-owned notes, exams and decks linked to a chapter inherit the chapter's visibility and cannot switch visibility independently while linked. See [chapters](chapters.md).
+
+Owners can permanently delete their own private documents (`DELETE /api/documents/:slug?permanent=1`) and private decks (`DELETE /api/decks/:id`). The content library (`librarySql`) applies `visibleTo` and group `access_rules` before pagination, validates item accessibility when organizing folders/archives/stars, and computes `can_delete` to match server deletion rules. Chapter deletion (`deletionPlan`) removes only items the caller may delete that are not shared with other chapters and skips invisible items.
+
+Learner weakness queries (`src/worker/routes/learning.ts`) require `ai` access and are scoped to the calling user.
+
+## Server enforcement, MCP and admin boundaries
+
+The website and MCP share server-side enforcement (`src/worker/mcp/internal.ts` routes MCP calls through internal `enforceAccess`, and every remote MCP request rechecks `allowlist` membership and `ai` access, requiring the `study:write` OAuth scope for `WRITE_TOOLS`). Checks cover direct document and course URLs, revisions, collaboration connections/messages, PDF downloads, `mcp_pdf_grants`, covers, uploads, cards, review submissions, exam attempts, chapters, long courses and creator-scoped `course_generations` drafts. Collection, search and history responses omit restricted content. Images/assets inherit the most restrictive policy of their referring documents or decks so referencing an image in an open note cannot expose a restricted note's image. Disabling `ai` prevents remote MCP calls and IB reference queries.
+
+Admin views also respect visibility boundaries: `GET /api/admin/revisions/pending` and `GET /api/admin/usage` filter counts and rows to `visibility = 'shared'`, and `enforceAccess` filters admin `documents`, `decks`, `answers` and `audit` responses using `visibleTo`. Permission edits and group deletions are recorded in the shared audit log; private permanent deletions do not record shared delete audits (while `POST /api/documents` logs creation internally before `GET /api/admin/audit` filters non-owner private rows out).
+
+## Session revocation, account isolation and caching
+
+Every server request checks current `allowlist` membership (`loadUser`) and current group rules; removing a user from the allowlist immediately deletes their active sessions. Login (`createSession`) and logout both delete prior `sessions` rows and expire the `study_openmaic` cookie. OpenMAIC classroom launch tickets (`study_openmaic`) bind `session_hash`, and both `/api/openmaic/live/*` and the `/classroom/*` proxy (`activeClassroomTicket`) require an active matching session joined with `allowlist`—returning `401` and clearing `study_openmaic` immediately on logout, account switch or allowlist removal. The proxy also strips STUDY auth headers before forwarding requests upstream.
+
+Delayed or offline learning writes verify `owner_id === user.id` and reject mismatches with `409` across `/api/books/uploads`, `/api/books/:id/annotations/batch`, `/api/books/:id/progress`, `/api/books/:id/bookmarks`, `/api/reviews` and `/api/openmaic/live/progress`. On the client, `RequireAuth` refreshes access state every 30 seconds and clears non-`["me"]` React Query caches when the signed-in user changes.
+
+Authenticated responses use `no-store`, and the service worker uses `NetworkOnly` (`no-store`) for `/api/` and OpenMAIC HTML routes. Classroom lesson images under `/api/classroom-media/` use `StaleWhileRevalidate` in the `classroom-media` cache, which logout deletes (`caches.delete("classroom-media")`). Already downloaded files or content previously copied by a user cannot be recalled, and previously installed service workers must update before new cache rules apply.
+
+## Migrations
+
+Additive migrations supporting access control, visibility and account isolation are `0006_access_groups.sql`, `0009_syllabi.sql`, `0010_private_content.sql`, `0013_ib_subject_resources.sql`, `0017_timetable.sql`, `0021_ib_resources_no_subject.sql`, `0023_content_organization.sql`, `0024_long_courses.sql`, `0026_learning_sync.sql`, `0028_chapters.sql`, `0031_chapter_visibility.sql` and `0032_chapter_material_books.sql`. Legacy pre-private documents and decks remain shared; unowned legacy `topics` rows remain hidden. No separate model API key or Cloudflare binding is needed for access control.

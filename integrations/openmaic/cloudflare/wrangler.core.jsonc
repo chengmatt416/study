@@ -1,0 +1,88 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "study-app-openmaic-core",
+  "minify": true,
+  "upload_source_maps": false,
+  "placement": {
+    "region": "aws:us-west-1"
+  },
+  "main": "../../../.openmaic/worker-core/worker.ts",
+  "compatibility_date": "2026-10-31",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": "../../../.openmaic/worker-core/.open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "study-app-openmaic-core"
+    },
+    {
+      "binding": "OPENMAIC_PARSER",
+      "service": "study-app-openmaic-parser"
+    },
+    {
+      "binding": "STUDY_LIVE_AI",
+      "service": "study-app"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMAIC_JOBS",
+        "class_name": "CoreCoordinator",
+        "script_name": "study-app-openmaic-jobs"
+      },
+      {
+        "name": "OPENMAIC_DATABASE",
+        "class_name": "OpenMaicPostgres",
+        "script_name": "study-app-openmaic-database"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "CoreJobs"
+      ]
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "OPENMAIC_FILES",
+      "bucket_name": "study-app-files"
+    },
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "study-app-files"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "vars": {
+    "OPENMAIC_WORKERS": "1",
+    "OPENMAIC_MCP_MODE": "1",
+    "OPENMAIC_AGENT_RUNTIME_ENABLED": "1",
+    "OWNER_SINGLE_USER": "false",
+    "OWNER_ANONYMOUS_PREMINT": "false",
+    "DATABASE_URL": "postgres://workers/openmaic",
+    "NEXT_PUBLIC_PRO_WORKBENCH_ENABLED": "1",
+    "NEXT_INC_CACHE_R2_PREFIX": "openmaic/next-cache",
+    "OPENMAIC_GENERATION_RUN_MAX_CONCURRENT": "10",
+    "OPENMAIC_MAX_ACTIVE_RUNS_PER_OWNER": "10",
+    "OPENMAIC_MAX_WAITING_RUNS_PER_OWNER": "20"
+  },
+  "triggers": {
+    "crons": []
+  },
+  "observability": {
+    "enabled": true
+  },
+  "workers_dev": true
+}

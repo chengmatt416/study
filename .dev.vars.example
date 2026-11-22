@@ -1,0 +1,12 @@
+# 複製為 .dev.vars（不會進 git）
+BOOTSTRAP_ADMINS=admin@example.test
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+SESSION_PEPPER=
+# 本機開發用「免 Google 登入」：/api/auth/dev?email=you@example.com（只在 localhost 生效）
+DEV_LOGIN=1
+
+# 完整官方 OpenMAIC Workers（模型回合透過 MCP）
+OPENMAIC_CORE_URL=
+# 與核心 Worker 的 STUDY_MCP_SECRET 相同，不是模型 API key；請勿提交實際 secret
+OPENMAIC_MCP_SECRET=
